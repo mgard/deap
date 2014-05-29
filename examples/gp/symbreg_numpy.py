@@ -51,7 +51,7 @@ creator.create("FitnessMin", base.Fitness, weights=(-1.0,))
 creator.create("Individual", gp.PrimitiveTree, fitness=creator.FitnessMin)
 
 toolbox = base.Toolbox()
-toolbox.register("expr", gp.genHalfAndHalf, pset=pset, min_=1, max_=2)
+toolbox.register("expr", gp.genHalfAndHalf, pset=pset, min_=4, max_=5)
 toolbox.register("individual", tools.initIterate, creator.Individual, toolbox.expr)
 toolbox.register("population", tools.initRepeat, list, toolbox.individual)
 toolbox.register("compile", gp.compile, pset=pset)
@@ -62,6 +62,9 @@ values = samples**4 + samples**3 + samples**2 + samples
 def evalSymbReg(individual):
     # Transform the tree expression in a callable function
     func = toolbox.compile(expr=individual)
+    import dis
+    dis.dis(func)
+    exit()
     # Evaluate the sum of squared difference between the expression
     # and the real function values : x**4 + x**3 + x**2 + x 
     diff = numpy.sum((func(samples) - values)**2)
@@ -76,7 +79,7 @@ toolbox.register('mutate', gp.mutUniform, expr=toolbox.expr_mut, pset=pset)
 def main():
     random.seed(318)
 
-    pop = toolbox.population(n=300)
+    pop = toolbox.population(n=500)
     hof = tools.HallOfFame(1)
     stats = tools.Statistics(lambda ind: ind.fitness.values)
     stats.register("avg", numpy.mean)

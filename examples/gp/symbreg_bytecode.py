@@ -25,8 +25,6 @@ from deap import creator
 from deap import tools
 from deap import gp
 
-import sys
-sys.path.append("..")
 import bytecodeGP
 
 # Define new functions
@@ -36,7 +34,7 @@ def protectedDiv(left, right):
     except ZeroDivisionError:
         return 1
 
-pset = gp.PrimitiveSet("MAIN", 2)
+pset = gp.PrimitiveSet("MAIN", 1)
 pset.addPrimitive(operator.add, 2)
 pset.addPrimitive(operator.sub, 2)
 pset.addPrimitive(operator.mul, 2)
@@ -44,9 +42,8 @@ pset.addPrimitive(protectedDiv, 2)
 pset.addPrimitive(operator.neg, 1)
 pset.addPrimitive(math.cos, 1)
 pset.addPrimitive(math.sin, 1)
-#pset.addEphemeralConstant("rand101", lambda: random.randint(-1,1))
+pset.addEphemeralConstant("rand101", lambda: random.randint(-1,1))
 pset.renameArguments(ARG0='x')
-pset.renameArguments(ARG1='y')
 
 creator.create("FitnessMin", base.Fitness, weights=(-1.0,))
 creator.create("Individual", bytecodeGP.PrimitiveTree, fitness=creator.FitnessMin, pset=pset)
@@ -61,8 +58,7 @@ toolbox.register("compile", bytecodeGP.PrimitiveTree.compile, pset=pset)
 def evalSymbReg(individual, points):
     func = toolbox.compile(expr=individual)
     #func = individual.compile()
-    y = 0.
-    sqerrors = ((func(x,y) - x**4 - x**3 - x**2 - x + 1/(x+11))**2 for x in points)
+    sqerrors = ((func(x) - x**4 - x**3 - x**2 - x)**2 for x in points)
     return math.fsum(sqerrors) / len(points),
 
 toolbox.register("evaluate", evalSymbReg, points=[x/10. for x in range(-10,10)])
@@ -70,13 +66,15 @@ toolbox.register("select", tools.selTournament, tournsize=3)
 toolbox.register("mate", gp.cxOnePoint)
 toolbox.register("expr_mut", gp.genFull, min_=0, max_=2)
 toolbox.register("mutate", gp.mutUniform, expr=toolbox.expr_mut, pset=pset)
+toolbox.decorate("mate", gp.staticLimit(operator.attrgetter('height'), 50))
+toolbox.decorate("mutate", gp.staticLimit(operator.attrgetter('height'), 50))
 
 
 def main():
     random.seed(318)
 
-    population = toolbox.population(n=300)
-    print(population[0])
+    population = toolbox.population(n=500)
+    #print(population[0])
     #import time
     #b = time.time()
     #for i in range(100):
@@ -94,7 +92,7 @@ def main():
     stats.register("max", numpy.max)
 
     verbose=True
-    ngen=40
+    ngen=60
     cxpb=0.8
     mutpb=0.1
 
@@ -149,6 +147,8 @@ def main():
             print(logbook.stream)
 
         #print("7")
+
+    print(len(bytecodeGP.PrimitiveTree.co_consts))
 
     return population, logbook
 

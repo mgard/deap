@@ -11,6 +11,8 @@ import types
 import inspect
 import importlib
 
+from collections import OrderedDict
+
 from deap import base,creator,gp
 
 class PrimitiveTree(bytearray):
@@ -19,6 +21,16 @@ class PrimitiveTree(bytearray):
     """
     co_names = tuple()
     co_vars  = tuple()
+    co_consts = OrderedDict()       # Contient des couples ephemeral_value : ephemeral_object
+                                    # C'est contre intuitif de mettre la valeur comme cle, mais
+                                    # c'est bien celle qui restera unique alors qu'un meme ephemeral
+                                    # peut generer plusieurs valeurs
+                                    # L'ordre doit etre conserve, car on utilise tuple(co_consts.keys())
+                                    # comme liste de constantes lors de la creation de l'objet code
+                                    # Cette methode n'est cependant pas efficace car le dictionnaire
+                                    # peut devenir tres gros (par exemple si la fonction generatrice
+                                    # est sur les reels)
+    type_args = tuple()
     funcWrapperCode = bytes([ dis.opmap['LOAD_CONST'], 0, 0,
                     dis.opmap['LOAD_CONST'], 1, 0,
                     dis.opmap['MAKE_FUNCTION'], 0, 0,
@@ -30,14 +42,16 @@ class PrimitiveTree(bytearray):
             bytearray.__init__(self, content)
             return
 
-        if len(self.co_names) == 0:
+        if len(self.co_names) == 0:     # Premier init
             PrimitiveTree.co_names = tuple(self.pset.context.keys())        # Pareil pour tous les PrimitiveTree
-            PrimitiveTree.co_vars = tuple(chr(a) for a in range(120, 120+len(self.pset.ins)))
+            PrimitiveTree.co_vars = tuple("ARG"+str(a) for a in range(len(self.pset.ins)))
+            PrimitiveTree.type_args = tuple()       # TODO
 
         self.extend(self._convertToBytecode(content))
         self.append(dis.opmap['RETURN_VALUE'])             # On ajoute le return final
 
         self.size = len(content)            # Plus rapide, mais seulement possible a l'initialisation
+        
     
     def _convertToBytecode(self, content):
         arities = []
@@ -48,11 +62,21 @@ class PrimitiveTree(bytearray):
             if node.arity == 0:
                 # Terminal
                 if isinstance(node, gp.Ephemeral):
-                    raise NotImplementedError
+                    if not node.value in self.co_consts:
+                        self.co_consts[node.value] = node
+                        constpos = len(self.co_consts)-1
+                    else:
+                        constpos = 0
+                        for v in self.co_consts.keys():
+                            if v == node.value:
+                                break
+                            constpos += 1
+
+                    b.extend([dis.opmap['LOAD_CONST'], constpos & 0xFF, constpos >> 8])     # Pas plus de 65535 constantes...
                 else:
                     # Arguments are named ARGx ou x va de 0 a ...
                     argnbr = int(node.name[3:])
-                    b.extend([dis.opmap['LOAD_FAST'], argnbr, 0]) # Supporte UNIQUEMENT un seul argument pour l'instant   
+                    b.extend([dis.opmap['LOAD_FAST'], argnbr & 0xFF, argnbr >> 8]) 
 
 
                 if len(arities) == 0:
@@ -64,7 +88,7 @@ class PrimitiveTree(bytearray):
 
                 arities[-1] -= 1
                 while arities[-1] == 0:
-                    b.extend([dis.opmap['CALL_FUNCTION'], num_args[-1], 0]) # On suppose qu'il n'y a pas de kwargs       
+                    b.extend([dis.opmap['CALL_FUNCTION'], num_args[-1], 0]) # On suppose qu'il n'y a pas de kwargs pour les primitives     
                     arities.pop()
                     num_args.pop()
 
@@ -91,7 +115,7 @@ class PrimitiveTree(bytearray):
             200,                        # stacksize      # Temporaire
             67,                         # flags           # Hum...
             bytes(expr),                # codestring
-            (),                         # consts
+            tuple(cls.co_consts),       # consts
             cls.co_names,               # names
             cls.co_vars,                # varnames
             "DEAP-Bytecode-Compiler",   # filename
@@ -141,7 +165,7 @@ class PrimitiveTree(bytearray):
             i = -3
             while currentPos <= key:
                 i += 3
-                if bytearray.__getitem__(self, i) in (dis.opmap['LOAD_GLOBAL'], dis.opmap['LOAD_FAST']):
+                if bytearray.__getitem__(self, i) in (dis.opmap['LOAD_GLOBAL'], dis.opmap['LOAD_FAST'], dis.opmap['LOAD_CONST']):
                     currentPos += 1
 
             if bytearray.__getitem__(self, i) == dis.opmap['LOAD_GLOBAL']:
@@ -149,19 +173,22 @@ class PrimitiveTree(bytearray):
             else:   # Terminal
                 return list(self.pset.terminals.values())[0][0]     # TODO Ok, a travailler, faut pas renvoyer n'importe quel terminal random...
 
-
     def __setitem__(self, key, val):
+        # Suppose que key est une slice!!
         if isinstance(val, bytearray):
             # Mise a jour de la taille
-            self.size += len([1 for b in val if b in (dis.opmap['CALL_FUNCTION'], dis.opmap['LOAD_FAST'])]) - \
-                            len([1 for b in bytearray.__getitem__(self, key) if b in (dis.opmap['CALL_FUNCTION'], dis.opmap['LOAD_FAST'])])
+            self.size += len([1 for b in val[::3] if b in (dis.opmap['CALL_FUNCTION'], dis.opmap['LOAD_FAST'], dis.opmap['LOAD_CONST'])]) - \
+                            len([1 for b in bytearray.__getitem__(self, key)[::3] if b in (dis.opmap['CALL_FUNCTION'], dis.opmap['LOAD_FAST'], dis.opmap['LOAD_CONST'])])
             bytearray.__setitem__(self, key, val)
+                      
         else:
             # On suppose que c'est une expression a transformer en bytecode (utile pour les mutations)
             # Pas certain que ca fonctionne pour mutNodeReplacement par contre...
             b = self._convertToBytecode(val)
-            self.size += len(val) - len([1 for b in bytearray.__getitem__(self, key) if b in (dis.opmap['CALL_FUNCTION'], dis.opmap['LOAD_FAST'])])
+            self.size += len(val) - len([1 for b in bytearray.__getitem__(self, key)[::3] if b in (dis.opmap['CALL_FUNCTION'], dis.opmap['LOAD_FAST'], dis.opmap['LOAD_CONST'])])
+
             bytearray.__setitem__(self, key, b)
+
 
     def __str__(self):
         # Excessivement mal fait et peu optimise
@@ -179,6 +206,11 @@ class PrimitiveTree(bytearray):
                     s += ", x"
                 else:
                     s += "x"
+            elif b == dis.opmap['LOAD_CONST']:
+                if len(s) > 1 and s[-1] != "(" and s[-2] != ",":            
+                    s += ", " + str(tuple(self.co_consts)[self[i+1] + (self[i+2] << 8)])
+                else:
+                    s += str(tuple(self.co_consts)[self[i+1] + (self[i+2] << 8)])
         return s
 
     def __len__(self):
@@ -193,7 +225,7 @@ class PrimitiveTree(bytearray):
                 current_depth += 1
             elif b == dis.opmap['CALL_FUNCTION']:
                 current_depth -= 1
-            elif b == dis.opmap['LOAD_FAST']:
+            elif b in (dis.opmap['LOAD_FAST'], dis.opmap['LOAD_CONST']):
                 max_depth = max(max_depth, current_depth+1)
         return max_depth - 1
 
@@ -206,13 +238,13 @@ class PrimitiveTree(bytearray):
         i = -3
         while currentPos <= begin:
             i += 3
-            if bytearray.__getitem__(self, i) in (dis.opmap['LOAD_GLOBAL'], dis.opmap['LOAD_FAST']):
+            if bytearray.__getitem__(self, i) in (dis.opmap['LOAD_GLOBAL'], dis.opmap['LOAD_FAST'], dis.opmap['LOAD_CONST']):
                 currentPos += 1
         realBegin = i
 
         end = realBegin+3
 
-        if bytearray.__getitem__(self, realBegin) != dis.opmap['LOAD_FAST']:  # Pas un terminal
+        if bytearray.__getitem__(self, realBegin) not in (dis.opmap['LOAD_FAST'], dis.opmap['LOAD_CONST']):  # Pas un terminal
             callOpToSee = 1
             while callOpToSee > 0:
                 if bytearray.__getitem__(self, end) == dis.opmap['CALL_FUNCTION']:

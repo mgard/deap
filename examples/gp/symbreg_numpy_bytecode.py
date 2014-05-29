@@ -55,7 +55,7 @@ creator.create("FitnessMin", base.Fitness, weights=(-1.0,))
 creator.create("Individual", bytecodeGP.PrimitiveTree, fitness=creator.FitnessMin, pset=pset)
 
 toolbox = base.Toolbox()
-toolbox.register("expr", gp.genHalfAndHalf, pset=pset, min_=2, max_=3)
+toolbox.register("expr", gp.genHalfAndHalf, pset=pset, min_=4, max_=5)
 toolbox.register("individual", tools.initIterate, creator.Individual, toolbox.expr)
 toolbox.register("population", tools.initRepeat, list, toolbox.individual)
 toolbox.register("compile", bytecodeGP.PrimitiveTree.compile, pset=pset)
@@ -88,7 +88,7 @@ def main():
     stats.register("min", numpy.min)
     stats.register("max", numpy.max)
     
-    algorithms.eaSimple(pop, toolbox, 0.8, 0.0, 30, stats, halloffame=hof)
+    algorithms.eaSimple(pop, toolbox, 0.5, 0.1, 40, stats, halloffame=hof)
 
     return pop, stats, hof
 
