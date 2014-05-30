@@ -31,6 +31,7 @@ class PrimitiveTree(bytearray):
                                     # peut devenir tres gros (par exemple si la fonction generatrice
                                     # est sur les reels)
     type_args = tuple()
+    prefix_name = ""
     funcWrapperCode = bytes([ dis.opmap['LOAD_CONST'], 0, 0,
                     dis.opmap['LOAD_CONST'], 1, 0,
                     dis.opmap['MAKE_FUNCTION'], 0, 0,
@@ -47,6 +48,12 @@ class PrimitiveTree(bytearray):
             PrimitiveTree.co_vars = tuple("ARG"+str(a) for a in range(len(self.pset.ins)))
             PrimitiveTree.type_args = tuple()       # TODO
 
+            # Hack pour recuperer le prefixe des arguments, puisqu'il n'est pas explicitement stocke dans le pset
+            tmp = 0
+            while not self.pset.arguments[0][tmp].isdigit():
+                tmp += 1
+            PrimitiveTree.prefix_name = self.pset.arguments[0][:tmp]
+
         self.extend(self._convertToBytecode(content))
         self.append(dis.opmap['RETURN_VALUE'])             # On ajoute le return final
 
@@ -61,9 +68,10 @@ class PrimitiveTree(bytearray):
         for node in content:
             if node.arity == 0:
                 # Terminal
-                if isinstance(node, gp.Ephemeral):
+                if isinstance(node, gp.Ephemeral) or not PrimitiveTree.prefix_name in node.name:
                     if not node.value in self.co_consts:
                         self.co_consts[node.value] = node
+                        assert isinstance(node.value, int), str(node.value)
                         constpos = len(self.co_consts)-1
                     else:
                         constpos = 0
@@ -74,8 +82,8 @@ class PrimitiveTree(bytearray):
 
                     b.extend([dis.opmap['LOAD_CONST'], constpos & 0xFF, constpos >> 8])     # Pas plus de 65535 constantes...
                 else:
-                    # Arguments are named ARGx ou x va de 0 a ...
-                    argnbr = int(node.name[3:])
+                    # Arguments are named PREFIXx ou x va de 0 a ..., et prefix etant un prefixe quelconque mais constant        
+                    argnbr = int(node.name[len(PrimitiveTree.prefix_name):])
                     b.extend([dis.opmap['LOAD_FAST'], argnbr & 0xFF, argnbr >> 8]) 
 
 
@@ -171,23 +179,35 @@ class PrimitiveTree(bytearray):
             if bytearray.__getitem__(self, i) == dis.opmap['LOAD_GLOBAL']:
                 return self.pset.mapping[self.co_names[bytearray.__getitem__(self, i+1)]]
             else:   # Terminal
-                return list(self.pset.terminals.values())[0][0]     # TODO Ok, a travailler, faut pas renvoyer n'importe quel terminal random...
+                return list(self.pset.terminals.values())[0][0]     # TODO, a travailler, faut pas renvoyer n'importe quel terminal random...
 
     def __setitem__(self, key, val):
         # Suppose que key est une slice!!
-        if isinstance(val, bytearray):
-            # Mise a jour de la taille
-            self.size += len([1 for b in val[::3] if b in (dis.opmap['CALL_FUNCTION'], dis.opmap['LOAD_FAST'], dis.opmap['LOAD_CONST'])]) - \
-                            len([1 for b in bytearray.__getitem__(self, key)[::3] if b in (dis.opmap['CALL_FUNCTION'], dis.opmap['LOAD_FAST'], dis.opmap['LOAD_CONST'])])
-            bytearray.__setitem__(self, key, val)
-                      
-        else:
-            # On suppose que c'est une expression a transformer en bytecode (utile pour les mutations)
-            # Pas certain que ca fonctionne pour mutNodeReplacement par contre...
-            b = self._convertToBytecode(val)
-            self.size += len(val) - len([1 for b in bytearray.__getitem__(self, key)[::3] if b in (dis.opmap['CALL_FUNCTION'], dis.opmap['LOAD_FAST'], dis.opmap['LOAD_CONST'])])
 
-            bytearray.__setitem__(self, key, b)
+        if isinstance(key, slice):
+            if isinstance(val, bytearray):
+                # Mise a jour de la taille
+                self.size += len([1 for b in val[::3] if b in (dis.opmap['CALL_FUNCTION'], dis.opmap['LOAD_FAST'], dis.opmap['LOAD_CONST'])]) - \
+                                len([1 for b in bytearray.__getitem__(self, key)[::3] if b in (dis.opmap['CALL_FUNCTION'], dis.opmap['LOAD_FAST'], dis.opmap['LOAD_CONST'])])
+                bytearray.__setitem__(self, key, val)
+                
+            else:
+                # On suppose que c'est une expression a transformer en bytecode (utile pour les mutations)
+                # Pas certain que ca fonctionne pour mutNodeReplacement par contre...
+                b = self._convertToBytecode(val)
+                self.size += len(val) - len([1 for b in bytearray.__getitem__(self, key)[::3] if b in (dis.opmap['CALL_FUNCTION'], dis.opmap['LOAD_FAST'], dis.opmap['LOAD_CONST'])])
+
+                bytearray.__setitem__(self, key, b)
+        else:
+            # Int
+            currentPos = 0
+            i = -3
+            while currentPos <= key:
+                i += 3
+                if bytearray.__getitem__(self, i) in (dis.opmap['LOAD_GLOBAL'], dis.opmap['LOAD_FAST'], dis.opmap['LOAD_CONST']):
+                    currentPos += 1
+
+            # TODO replace primitive
 
 
     def __str__(self):

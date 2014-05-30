@@ -72,6 +72,8 @@ def main():
     random.seed(318)
 
     pop = toolbox.population(n=500)
+
+
     hof = tools.HallOfFame(1)
     
     stats_fit = tools.Statistics(lambda ind: ind.fitness.values)
@@ -82,10 +84,12 @@ def main():
     mstats.register("min", numpy.min)
     mstats.register("max", numpy.max)
 
-    pop, log = algorithms.eaSimple(pop, toolbox, 0.8, 0.1, 60, stats=mstats,
+    pop, log = algorithms.eaSimple(pop, toolbox, 0.7, 0.1, 30, stats=mstats,
                                    halloffame=hof, verbose=True)
     # print log
     return pop, log, hof
 
 if __name__ == "__main__":
+    import pdb
+    pdb.set_trace()
     main()

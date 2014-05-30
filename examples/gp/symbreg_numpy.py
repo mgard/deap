@@ -18,6 +18,7 @@ import math
 import random
 
 import numpy
+import time
 
 from deap import algorithms
 from deap import base
@@ -51,23 +52,27 @@ creator.create("FitnessMin", base.Fitness, weights=(-1.0,))
 creator.create("Individual", gp.PrimitiveTree, fitness=creator.FitnessMin)
 
 toolbox = base.Toolbox()
-toolbox.register("expr", gp.genHalfAndHalf, pset=pset, min_=4, max_=5)
+toolbox.register("expr", gp.genHalfAndHalf, pset=pset, min_=2, max_=5)
 toolbox.register("individual", tools.initIterate, creator.Individual, toolbox.expr)
 toolbox.register("population", tools.initRepeat, list, toolbox.individual)
 toolbox.register("compile", gp.compile, pset=pset)
 
-samples = numpy.linspace(-1, 1, 10000)
+samples = numpy.linspace(-1, 1, 100)
 values = samples**4 + samples**3 + samples**2 + samples
 
+tglobal1,tglobal2 = 0., 0.
 def evalSymbReg(individual):
+    global tglobal1, tglobal2
     # Transform the tree expression in a callable function
+    t = time.time()
     func = toolbox.compile(expr=individual)
-    import dis
-    dis.dis(func)
-    exit()
+    tglobal1 += time.time()-t
     # Evaluate the sum of squared difference between the expression
     # and the real function values : x**4 + x**3 + x**2 + x 
+
+    t = time.time()
     diff = numpy.sum((func(samples) - values)**2)
+    tglobal2 += time.time()-t
     return diff,
 
 toolbox.register("evaluate", evalSymbReg)
@@ -75,6 +80,8 @@ toolbox.register("select", tools.selTournament, tournsize=3)
 toolbox.register("mate", gp.cxOnePoint)
 toolbox.register("expr_mut", gp.genFull, min_=0, max_=2)
 toolbox.register('mutate', gp.mutUniform, expr=toolbox.expr_mut, pset=pset)
+toolbox.decorate("mate", gp.staticLimit(operator.attrgetter('height'), 50))
+toolbox.decorate("mutate", gp.staticLimit(operator.attrgetter('height'), 50))
 
 def main():
     random.seed(318)
@@ -87,9 +94,10 @@ def main():
     stats.register("min", numpy.min)
     stats.register("max", numpy.max)
     
-    algorithms.eaSimple(pop, toolbox, 0.5, 0.1, 40, stats, halloffame=hof)
+    algorithms.eaSimple(pop, toolbox, 0.7, 0.1, 30, stats, halloffame=hof)
 
     return pop, stats, hof
 
 if __name__ == "__main__":
     main()
+    print(tglobal1, tglobal2)
