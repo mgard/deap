@@ -16,15 +16,17 @@
 import operator
 import math
 import random
+import time
 
 import numpy
-import time
 
 from deap import algorithms
 from deap import base
 from deap import creator
 from deap import tools
 from deap import gp
+
+import bytecodeGP
 
 # Define new functions
 def protectedDiv(left, right):
@@ -49,13 +51,13 @@ pset.addEphemeralConstant("rand101", lambda: random.randint(-1,1))
 pset.renameArguments(ARG0='x')
 
 creator.create("FitnessMin", base.Fitness, weights=(-1.0,))
-creator.create("Individual", gp.PrimitiveTree, fitness=creator.FitnessMin)
+creator.create("Individual", bytecodeGP.PrimitiveTree, fitness=creator.FitnessMin, pset=pset)
 
 toolbox = base.Toolbox()
 toolbox.register("expr", gp.genHalfAndHalf, pset=pset, min_=2, max_=5)
 toolbox.register("individual", tools.initIterate, creator.Individual, toolbox.expr)
 toolbox.register("population", tools.initRepeat, list, toolbox.individual)
-toolbox.register("compile", gp.compile, pset=pset)
+toolbox.register("compile", bytecodeGP.PrimitiveTree.compile, pset=pset)
 
 samples = numpy.linspace(-1, 1, 100)
 values = samples**4 + samples**3 + samples**2 + samples
